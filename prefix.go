@@ -73,6 +73,91 @@ func (t *PrefixTrie) Find(key string) (interface{}, bool) {
 	return n.value, n.valid
 }
 
+// Delete removes a key-value pair from the Trie, returning true when the key
+// was found in the Trie prior to deletion, and false otherwise.
+func (t *PrefixTrie) Delete(key string) bool {
+	n := t.root
+
+	//
+	// This algorithm will walk tree until it finds the node corresponding to
+	// the specified key, and when it finds it, it removes that key, then must
+	// walk the tree backwards to the root, deleting nodes which are not
+	// terminal nodes and which have no children. In order to walk the tree back
+	// to the root this algorithm creates a stack of bookmarks while finding the
+	// specified key, starting with the root node.
+	//
+
+	bookmarks := []*pbookmark{&pbookmark{n: n}}
+
+	// Look for specified key in tree.
+	for i, k := range []byte(key) {
+		c := n.children[k]
+		if c == nil {
+			return false
+		}
+		bookmarks = append(bookmarks, &pbookmark{
+			n:      c,
+			prefix: []byte{key[i]},
+		})
+		n = c
+	}
+
+	wasValid := n.valid
+	n.valid = false // Mark this node as invalid.
+
+	if !wasValid {
+		// This node was not valid, so it must be here solely because it has
+		// children. Therefore there is no more cleanup.
+		return false
+	}
+
+	//
+	// Pop bookmarks from stack until find node with no children and not itself
+	// valid, deleting any nodes which are no longer needed.
+	//
+
+	// prev stores the byte of the child node to be deleted from the parent. It
+	// is set to 256 for the first iteration to avoid attempting to remove the
+	// node from its own array of children pointers.
+	var prev uint16 = 256
+
+	for {
+		// Pop bookmark from stack.
+		var bm *pbookmark
+		bi := len(bookmarks) - 1
+		bm, bookmarks = bookmarks[bi], bookmarks[:bi]
+
+		if prev != 256 {
+			// Unlink child.
+			bm.n.children[prev] = nil
+		}
+
+		if bi == 0 {
+			// There is no reason to perform further evaluation of this node
+			// because it is the root node.
+			return true
+		}
+
+		if bm.n.valid {
+			// This node is valid, therefore there is no more cleanup.
+			return true
+		}
+
+		// Check this node for children.
+		for i := 0; i < 256; i++ {
+			if bm.n.children[i] != nil {
+				// This node has children, therefore there is no more cleanup.
+				return true
+			}
+		}
+
+		// This node has no children, and may be removed.
+		prev = uint16(bm.prefix[0])
+	}
+
+	return true
+}
+
 // Insert stores the key-value pair in the Trie, overwriting an existing value
 // if key was stored before.
 func (t *PrefixTrie) Insert(key string, value interface{}) {
