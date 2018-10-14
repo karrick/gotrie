@@ -1,9 +1,5 @@
 package gotrie
 
-import (
-	"strings"
-)
-
 // PrefixTrie is a prefix tree, also known as a digital tree, as described by
 // https://en.wikipedia.org/wiki/Trie with a one byte radix.
 //
@@ -51,8 +47,9 @@ func NewPrefixTrie() *PrefixTrie {
 
 // pbookmark is used while enumerating a prefix trie contents during scanning.
 type pbookmark struct {
-	n *pnode
-	k uint16
+	n      *pnode // n points to bookmarked Trie node
+	prefix []byte // prefix is the collected key bytes at this node
+	k      uint16 // k is part of the bookmark, because it is the next byte to check
 }
 
 // pnode is a node in a prefix trie.
@@ -67,11 +64,11 @@ type pnode struct {
 func (t *PrefixTrie) Find(key string) (interface{}, bool) {
 	n := t.root
 	for _, k := range []byte(key) {
-		c := n.children[k]
-		if c == nil {
-			return nil, false
+		if c := n.children[k]; c != nil {
+			n = c
+			continue
 		}
-		n = c
+		return nil, false
 	}
 	return n.value, n.valid
 }
@@ -81,7 +78,6 @@ func (t *PrefixTrie) Find(key string) (interface{}, bool) {
 func (t *PrefixTrie) Insert(key string, value interface{}) {
 	n := t.root
 	keyb := []byte(key)
-
 	indexLastByte := -1
 
 	for i, k := range keyb {
@@ -106,27 +102,39 @@ func (t *PrefixTrie) Insert(key string, value interface{}) {
 	n.valid = true
 }
 
-// Scan locates the next key-value pair in the Trie, and returns true when
-// another pair is available.
+// Scan locates the next key-value pair in the Trie. When it finds another pair,
+// it returns true; otherwise it returns false.
+//
+// This works as a continuation, or more specifically as a generator function,
+// and only does as much work as required to move the iterator to the next
+// key-value pair and return. The first time it is invoked it initializes the
+// generator. After it enumerates all key-value pairs in the Trie, it may be
+// enumerated again simply by calling this function again.
 func (t *PrefixTrie) Scan() bool {
+	// As a continuation, this function normally picks back up where it left
+	// off. However, if there are no bookmarks, it has either never been
+	// executed, or it has already completely enumerated the Trie's contents. In
+	// either case, initialize the generator.
 	ls := len(t.bookmarks)
 	if ls == 0 {
-		// initialize scan to point to root element
 		t.bookmarks = []*pbookmark{&pbookmark{n: t.root}}
 		ls++
 	}
 
-	// this picks up where it left off
 	itop := ls - 1
 	bm := t.bookmarks[itop]
 
 outer:
 	for {
-		// continuing at previous bookmark position
+		// Look for the next child node from bookmarked node, starting at
+		// previous byte from the key.
 		for ; bm.k < 256; bm.k++ {
 			child := bm.n.children[bm.k]
 			if child != nil {
-				bm = &pbookmark{n: child}
+				bm = &pbookmark{
+					n:      child,
+					prefix: append(bm.prefix, byte(bm.k)),
+				}
 				t.bookmarks = append(t.bookmarks, bm)
 				itop++
 				if child.valid {
@@ -136,14 +144,22 @@ outer:
 			}
 		}
 
+		// Current bookmarked node has no additional children, so pop bookmark
+		// stack until we find a bookmarked node that has more children to
+		// search.
 		for bm.k == 256 {
 			if itop--; itop == -1 {
+				// When the slice of bookmarks is empty, then there are no more
+				// key-value pairs to enumerate.
 				return false
 			}
+
+			// Use top bookmark by popping off the stack of bookmarks.
 			bm, t.bookmarks = t.bookmarks[itop], t.bookmarks[:itop+1]
 		}
 
-		bm.k++ // next search should start at index after where previous left off
+		// The next search must start at the index _after_ the current index.
+		bm.k++
 	}
 
 	// never gets here
@@ -152,34 +168,11 @@ outer:
 
 // Pair returns the key-value pair under the scanning cursor.
 func (t *PrefixTrie) Pair() (string, interface{}) {
-	var sb strings.Builder
-	var n *pnode
-
-	finalIndex := len(t.bookmarks) - 1
-
-	for i, b := range t.bookmarks {
-		if i < finalIndex {
-			sb.WriteByte(byte(b.k))
-			continue
-		}
-		n = b.n
-	}
-
-	return sb.String(), n.value
+	bm := t.bookmarks[len(t.bookmarks)-1] // top bookmark
+	return string(bm.prefix), bm.n.value
 }
 
 // Text returns the key of the key-value pair under the scanning cursor.
 func (t *PrefixTrie) Text() string {
-	var sb strings.Builder
-
-	finalIndex := len(t.bookmarks) - 1
-
-	for i, b := range t.bookmarks {
-		if i < finalIndex {
-			sb.WriteByte(byte(b.k))
-			continue
-		}
-	}
-
-	return sb.String()
+	return string(t.bookmarks[len(t.bookmarks)-1].prefix)
 }
