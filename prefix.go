@@ -64,11 +64,11 @@ type pnode struct {
 func (t *PrefixTrie) Find(key string) (interface{}, bool) {
 	n := t.root
 	for _, k := range []byte(key) {
-		if c := n.children[k]; c != nil {
-			n = c
-			continue
+		c := n.children[k]
+		if c == nil {
+			return nil, false
 		}
-		return nil, false
+		n = c
 	}
 	return n.value, n.valid
 }
@@ -77,8 +77,8 @@ func (t *PrefixTrie) Find(key string) (interface{}, bool) {
 // if key was stored before.
 func (t *PrefixTrie) Insert(key string, value interface{}) {
 	n := t.root
-	keyb := []byte(key)
 	indexLastByte := -1
+	keyb := []byte(key)
 
 	for i, k := range keyb {
 		c := n.children[k]
