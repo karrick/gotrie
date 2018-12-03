@@ -231,7 +231,7 @@ outer:
 
 		// Current bookmarked node has no additional children, so pop bookmark
 		// stack until we find a bookmarked node that has more children to
-		// search.
+		// scan.
 		for bm.k == 256 {
 			if itop--; itop == -1 {
 				// When the slice of bookmarks is empty, then there are no more
@@ -243,7 +243,7 @@ outer:
 			bm, t.bookmarks = t.bookmarks[itop], t.bookmarks[:itop+1]
 		}
 
-		// The next search must start at the index _after_ the current index.
+		// The next scan must start at the index _after_ the current index.
 		bm.k++
 	}
 
